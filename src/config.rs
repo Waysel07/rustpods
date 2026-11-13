@@ -151,6 +151,8 @@ pub struct Config {
     pub duck: bool,
     /// Volume while you talk, as a fraction of the normal volume.
     pub duck_level: f32,
+    /// Offer to connect when a paired AirPods case is opened nearby.
+    pub connect_assistant: bool,
     pub left: Side,
     pub right: Side,
 }
@@ -165,6 +167,7 @@ impl Default for Config {
             media_keys: true,
             duck: false,
             duck_level: 0.3,
+            connect_assistant: true,
             left: Side::default(),
             right: Side::default(),
         }

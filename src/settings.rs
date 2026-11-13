@@ -439,9 +439,10 @@ impl App {
             });
             ui.separator();
             let c = &mut self.cfg;
-            let items: [(&str, Option<&str>, &mut bool); 5] = [
+            let items: [(&str, Option<&str>, &mut bool); 6] = [
                 ("Pause when an AirPod comes out", Some("And resume when you put it back"), &mut c.ear_pause),
                 ("Battery popup when connecting", None, &mut c.popup),
+                ("Connection assistant", Some("Offers to connect when you open the case nearby"), &mut c.connect_assistant),
                 ("Low battery notifications", Some("At 20 % and 10 %"), &mut c.notify_low),
                 ("Battery in desktop widgets", Some("Applies after the service restarts"), &mut c.battery_provider),
                 ("Presses control the playing app", Some("Applies after the service restarts"), &mut c.media_keys),

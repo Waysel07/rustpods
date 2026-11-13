@@ -27,6 +27,7 @@ use smithay_client_toolkit::{
     },
     shm::{Shm, ShmHandler, slot::SlotPool},
 };
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tiny_skia::{Color, FillRule, Paint, PathBuilder, Pixmap, PixmapPaint, Stroke, Transform};
 
@@ -37,11 +38,56 @@ pub struct PopupData {
     #[serde(default)]
     pub product: u16,
     pub batteries: Vec<Battery>,
+    /// Connection assistant: the paired address to connect when the button is pressed.
+    #[serde(default)]
+    pub connect: Option<String>,
 }
 
 const W: u32 = 400;
 const H: u32 = 310;
 const SHOW: Duration = Duration::from_millis(6500);
+/// The assistant waits longer: you need time to reach for the button.
+const SHOW_ASSIST: Duration = Duration::from_secs(15);
+/// Extra height for the Connect button.
+const BUTTON_AREA: u32 = 76;
+const BUTTON_Y: f32 = 318.0;
+const BUTTON_H: f32 = 48.0;
+const BUTTON_X: f32 = 24.0;
+const ACCENT: (u8, u8, u8) = (0, 122, 255);
+
+fn height(d: &PopupData) -> u32 {
+    if d.connect.is_some() { H + BUTTON_AREA } else { H }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Conn {
+    Idle,
+    Connecting,
+    Done,
+    Failed,
+}
+
+impl Conn {
+    fn label(self) -> &'static str {
+        match self {
+            Conn::Idle => "Connect",
+            Conn::Connecting => "Connecting…",
+            Conn::Done => "Connected",
+            Conn::Failed => "Couldn't connect. Try again",
+        }
+    }
+}
+
+/// Asks BlueZ to connect the paired AirPods (bluetoothctl ships with BlueZ everywhere).
+fn connect(addr: String, state: Arc<Mutex<Conn>>) {
+    std::thread::spawn(move || {
+        let ok = std::process::Command::new("timeout")
+            .args(["20", "bluetoothctl", "connect", &addr])
+            .output()
+            .is_ok_and(|o| String::from_utf8_lossy(&o.stdout).contains("Connection successful"));
+        *state.lock().unwrap() = if ok { Conn::Done } else { Conn::Failed };
+    });
+}
 const IN: f32 = 0.32;
 const OUT: f32 = 0.26;
 
@@ -73,7 +119,7 @@ pub fn show(data: PopupData) -> Result<()> {
     let layer = layer_shell.create_layer_surface(&qh, surface, Layer::Overlay, Some("rustpods"), None);
     layer.set_anchor(Anchor::BOTTOM);
     layer.set_margin(0, 0, 64, 0);
-    layer.set_size(W, H);
+    layer.set_size(W, height(&data));
     layer.set_keyboard_interactivity(KeyboardInteractivity::None);
     layer.set_exclusive_zone(-1);
     layer.commit();
@@ -82,7 +128,7 @@ pub fn show(data: PopupData) -> Result<()> {
         registry: RegistryState::new(&globals),
         seat: SeatState::new(&globals, &qh),
         output: OutputState::new(&globals, &qh),
-        pool: SlotPool::new((W * H * 4 * 4) as usize, &shm)?,
+        pool: SlotPool::new((W * height(&data) * 4 * 4) as usize, &shm)?,
         shm,
         layer,
         pointer: None,
@@ -93,6 +139,9 @@ pub fn show(data: PopupData) -> Result<()> {
         configured: false,
         start: Instant::now(),
         hide_at: None,
+        conn: Arc::new(Mutex::new(Conn::Idle)),
+        drawn_conn: Conn::Idle,
+        pointer_at: (0.0, 0.0),
         exit: false,
     };
     while !app.exit {
@@ -116,6 +165,9 @@ struct Popup {
     configured: bool,
     start: Instant,
     hide_at: Option<Instant>,
+    conn: Arc<Mutex<Conn>>,
+    drawn_conn: Conn,
+    pointer_at: (f64, f64),
     exit: bool,
 }
 
@@ -126,9 +178,23 @@ fn ease_out(t: f32) -> f32 {
 impl Popup {
     fn draw(&mut self, qh: &QueueHandle<Self>) {
         let s = self.scale.max(1) as u32;
-        let (w, h) = (W * s, H * s);
+        let (w, h) = (W * s, height(&self.data) * s);
+        let conn = *self.conn.lock().unwrap();
+        let now = Instant::now();
+        if conn != self.drawn_conn {
+            self.drawn_conn = conn;
+            self.card = None;
+            match conn {
+                // Stay up while connecting; leave shortly after it worked.
+                Conn::Connecting => self.hide_at = Some(now + Duration::from_secs(25)),
+                Conn::Done => self.hide_at = Some(now + Duration::from_millis(1200)),
+                Conn::Failed => self.hide_at = Some(now + Duration::from_secs(8)),
+                Conn::Idle => {}
+            }
+        }
+        let button = self.data.connect.as_ref().map(|_| conn);
         if self.card.as_ref().is_none_or(|c| c.width() != w) {
-            self.card = render_card(&self.data, &self.fonts, s as f32);
+            self.card = render_card(&self.data, &self.fonts, s as f32, button);
         }
         let Some(card) = &self.card else {
             self.exit = true;
@@ -136,8 +202,8 @@ impl Popup {
         };
 
         // Animation: slide up + fade in, hold, fade + sink out.
-        let now = Instant::now();
-        let hide_at = *self.hide_at.get_or_insert(self.start + SHOW);
+        let show = if self.data.connect.is_some() { SHOW_ASSIST } else { SHOW };
+        let hide_at = *self.hide_at.get_or_insert(self.start + show);
         let t_in = ease_out(now.duration_since(self.start).as_secs_f32() / IN);
         let t_out = if now >= hide_at { ease_out(now.duration_since(hide_at).as_secs_f32() / OUT) } else { 0.0 };
         if t_out >= 1.0 {
@@ -506,8 +572,8 @@ fn user_image(pm: &mut Pixmap, product: u16, names: &[&str], cx: f32, cy: f32, b
     false
 }
 
-fn render_card(data: &PopupData, fonts: &Fonts, u: f32) -> Option<Pixmap> {
-    let (w, h) = (W as f32 * u, H as f32 * u);
+fn render_card(data: &PopupData, fonts: &Fonts, u: f32, button: Option<Conn>) -> Option<Pixmap> {
+    let (w, h) = (W as f32 * u, height(data) as f32 * u);
     let mut pm = Pixmap::new(w as u32, h as u32)?;
     let mut sheet = PathBuilder::new();
     rounded(&mut sheet, 0.0, 0.0, w, h, 42.0 * u);
@@ -592,13 +658,25 @@ fn render_card(data: &PopupData, fonts: &Fonts, u: f32) -> Option<Pixmap> {
         };
         battery(&mut pm, fonts, b, cx, 232.0 * u, u);
     }
+    if let Some(state) = button {
+        let mut pb = PathBuilder::new();
+        rounded(&mut pb, BUTTON_X * u, BUTTON_Y * u, w - 2.0 * BUTTON_X * u, BUTTON_H * u, 14.0 * u);
+        let (fill_c, text_c) = match state {
+            Conn::Idle | Conn::Failed => (ACCENT, SHEET),
+            Conn::Connecting => (CLOSE_BG, GRAY),
+            Conn::Done => (GREEN, SHEET),
+        };
+        fill(&mut pm, pb, &paint(fill_c, 255));
+        text(&mut pm, &fonts.bold, state.label(), 17.0 * u, w / 2.0, (BUTTON_Y + 30.5) * u, text_c);
+    }
     Some(pm)
 }
 
 /// Renders the card to a PNG (for previews and tests without a compositor).
 pub fn render_png(data: &PopupData, path: &str, scale: u32) -> Result<()> {
     let fonts = Fonts::load()?;
-    let card = render_card(data, &fonts, scale as f32).context("render failed")?;
+    let button = data.connect.as_ref().map(|_| Conn::Idle);
+    let card = render_card(data, &fonts, scale as f32, button).context("render failed")?;
     card.save_png(path)?;
     Ok(())
 }
@@ -668,8 +746,22 @@ impl SeatHandler for Popup {
 impl PointerHandler for Popup {
     fn pointer_frame(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_pointer::WlPointer, events: &[PointerEvent]) {
         for e in events {
+            self.pointer_at = e.position;
             if matches!(e.kind, PointerEventKind::Press { .. }) {
-                // Click dismisses (starts the fade-out now).
+                let (x, y) = (e.position.0 as f32, e.position.1 as f32);
+                let on_button = (BUTTON_X..=W as f32 - BUTTON_X).contains(&x) && (BUTTON_Y..=BUTTON_Y + BUTTON_H).contains(&y);
+                if let (true, Some(addr)) = (on_button, self.data.connect.clone()) {
+                    let mut c = self.conn.lock().unwrap();
+                    if matches!(*c, Conn::Idle | Conn::Failed) {
+                        *c = Conn::Connecting;
+                        connect(addr, self.conn.clone());
+                    }
+                    continue;
+                }
+                // Anywhere else: dismiss (start the fade-out now), unless a connection is running.
+                if *self.conn.lock().unwrap() == Conn::Connecting {
+                    continue;
+                }
                 let now = Instant::now();
                 if self.hide_at.is_none_or(|t| t > now) {
                     self.hide_at = Some(now);

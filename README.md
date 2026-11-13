@@ -34,6 +34,7 @@ rustpods speaks it.
 | | |
 | --- | --- |
 | 🔋 **Battery popup** | Slides up when your AirPods connect: left, right and case, with charging state. Click to dismiss. |
+| 📲 **Connection assistant** | Open the case near your computer and a popup offers to connect, with the battery levels from the case. One click and you're listening. |
 | 🖥️ **Battery in your desktop** | Shows up in KDE, GNOME, UPower and every battery widget, like any other Bluetooth device. |
 | 👂 **Ear detection** | Take an AirPod out and the music pauses. Put it back and it resumes. |
 | 👆 **Stem presses** | Press once to play/pause, twice for the next song, three times for the previous one, in whatever is playing. |
@@ -96,7 +97,7 @@ Open **RustPods** from your app menu (or run `rustpods`).
   Choices: play/pause, next, previous, volume up/down, mute, next noise mode, conversation awareness,
   battery popup, nothing, or *Run command…* for anything else (`playerctl`, `notify-send`, a script).
 - **Noise control** and **conversation awareness**, when your AirPods have them.
-- **Automatic:** auto-pause, popup on connect, low battery alerts, desktop battery, volume ducking.
+- **Automatic:** auto-pause, popup on connect, connection assistant, low battery alerts, desktop battery, volume ducking.
 
 Changes apply immediately and are stored in `~/.config/rustpods/config.json`.
 
@@ -232,6 +233,9 @@ river, …). On GNOME and X11 it falls back to a notification.
   on exit rustpods hands the presses back.
 - **Stem presses:** rustpods registers itself with BlueZ as the Bluetooth media player
   (`org.bluez.Media1`) and forwards each AVRCP command to the MPRIS player that is actually playing.
+- **Connection assistant:** while no paired AirPods are connected, rustpods runs a BLE scan through
+  BlueZ. An open case broadcasts Apple's proximity-pairing advertisement (model, battery, lid counter);
+  when it matches a paired model and is close by, the popup offers to connect.
 - **Popup:** a `wlr-layer-shell` surface drawn in software with [tiny-skia](https://github.com/RazrFalcon/tiny-skia),
   no GTK or Qt needed.
 

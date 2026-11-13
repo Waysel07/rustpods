@@ -56,7 +56,7 @@ impl State {
     }
 
     pub fn popup(&self) -> PopupData {
-        PopupData { name: self.name.clone(), model: self.model.clone(), product: self.product, batteries: self.batteries.clone() }
+        PopupData { name: self.name.clone(), model: self.model.clone(), product: self.product, batteries: self.batteries.clone(), connect: None }
     }
 
     fn apply(&mut self, ev: &Event) {
@@ -170,7 +170,7 @@ pub async fn notify(session: &Connection, summary: &str, body: &str) {
         .await;
 }
 
-fn spawn_popup(data: &PopupData) {
+pub fn spawn_popup(data: &PopupData) {
     let Ok(exe) = std::env::current_exe() else { return };
     let Ok(json) = serde_json::to_string(data) else { return };
     match std::process::Command::new(exe).args(["popup", "--data", &json]).spawn() {
@@ -211,6 +211,14 @@ pub async fn run(opts: Options) -> Result<()> {
 
     let (tx, mut rx) = mpsc::channel::<Cmd>(8);
     tokio::spawn(ipc_server(state.clone(), tx));
+    {
+        let (system, want) = (system.clone(), opts.device.clone());
+        tokio::spawn(async move {
+            if let Err(e) = crate::ble::run(system, want).await {
+                eprintln!("connection assistant unavailable: {e:#}");
+            }
+        });
+    }
 
     let mut provider_ok = false;
     let mut bridge_ok = false;
@@ -372,7 +380,10 @@ async fn session_loop(
                 }
                 if opts.popup && cfg.popup && !popped && !snapshot.batteries.is_empty() {
                     popped = true;
-                    spawn_popup(&snapshot.popup());
+                    // The assistant popup was just up (and says "Connected"): don't show a second one.
+                    if !crate::ble::shown_within(Duration::from_secs(30)) {
+                        spawn_popup(&snapshot.popup());
+                    }
                 }
                 if opts.notify_low && cfg.notify_low {
                     for b in &snapshot.batteries {

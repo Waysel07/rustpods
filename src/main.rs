@@ -1,5 +1,6 @@
 mod aap;
 mod avrcp;
+mod ble;
 mod bluez;
 mod config;
 mod daemon;
@@ -344,6 +345,7 @@ fn demo_data() -> popup::PopupData {
         name: "AirPods".into(),
         model: "AirPods Pro 2".into(),
         product: 0x2014,
+        connect: None,
         batteries: vec![
             Battery { component: Component::Left, level: 82, charge: Charge::Discharging },
             Battery { component: Component::Right, level: 15, charge: Charge::Discharging },
