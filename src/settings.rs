@@ -44,11 +44,28 @@ pub fn run() -> anyhow::Result<()> {
             .with_title("RustPods")
             .with_app_id("rustpods")
             .with_inner_size([460.0, 720.0])
-            .with_min_inner_size([380.0, 480.0]),
+            .with_min_inner_size([380.0, 480.0])
+            .with_icon(window_icon()),
         ..Default::default()
     };
     eframe::run_native("RustPods", options, Box::new(|cc| Ok(Box::new(App::new(cc)))))
         .map_err(|e| anyhow::anyhow!("could not open the settings window: {e}"))
+}
+
+fn window_icon() -> egui::IconData {
+    let png = include_bytes!("../packaging/icons/rustpods-128.png");
+    match tiny_skia::Pixmap::decode_png(png) {
+        Ok(p) => {
+            // tiny-skia stores premultiplied alpha; the window icon wants straight alpha.
+            let mut rgba = Vec::with_capacity(p.data().len());
+            for px in p.pixels() {
+                let c = px.demultiply();
+                rgba.extend_from_slice(&[c.red(), c.green(), c.blue(), c.alpha()]);
+            }
+            egui::IconData { rgba, width: p.width(), height: p.height() }
+        }
+        Err(_) => egui::IconData::default(),
+    }
 }
 
 struct App {

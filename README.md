@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="packaging/icons/rustpods-128.png" width="96" alt="RustPods icon">
+
 # rustpods
 
 **AirPods, but they feel at home on Linux.**

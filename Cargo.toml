@@ -1,6 +1,6 @@
 [package]
 name = "rustpods"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 description = "Make AirPods feel at home on Linux: battery popup, ear detection, stem controls, noise control"
 license = "MIT"
@@ -41,7 +41,12 @@ assets = [
     ["target/release/rustpods", "usr/bin/", "755"],
     ["packaging/rustpods.desktop", "usr/share/applications/", "644"],
     ["packaging/rustpods-daemon.desktop", "etc/xdg/autostart/", "644"],
-    ["packaging/rustpods.svg", "usr/share/icons/hicolor/scalable/apps/", "644"],
+    ["packaging/icons/rustpods-32.png", "usr/share/icons/hicolor/32x32/apps/rustpods.png", "644"],
+    ["packaging/icons/rustpods-48.png", "usr/share/icons/hicolor/48x48/apps/rustpods.png", "644"],
+    ["packaging/icons/rustpods-64.png", "usr/share/icons/hicolor/64x64/apps/rustpods.png", "644"],
+    ["packaging/icons/rustpods-128.png", "usr/share/icons/hicolor/128x128/apps/rustpods.png", "644"],
+    ["packaging/icons/rustpods-256.png", "usr/share/icons/hicolor/256x256/apps/rustpods.png", "644"],
+    ["packaging/icons/rustpods-512.png", "usr/share/icons/hicolor/512x512/apps/rustpods.png", "644"],
     ["README.md", "usr/share/doc/rustpods/", "644"],
 ]
 
@@ -50,7 +55,12 @@ assets = [
     { source = "target/release/rustpods", dest = "/usr/bin/rustpods", mode = "755" },
     { source = "packaging/rustpods.desktop", dest = "/usr/share/applications/rustpods.desktop", mode = "644" },
     { source = "packaging/rustpods-daemon.desktop", dest = "/etc/xdg/autostart/rustpods-daemon.desktop", mode = "644" },
-    { source = "packaging/rustpods.svg", dest = "/usr/share/icons/hicolor/scalable/apps/rustpods.svg", mode = "644" },
+    { source = "packaging/icons/rustpods-32.png", dest = "/usr/share/icons/hicolor/32x32/apps/rustpods.png", mode = "644" },
+    { source = "packaging/icons/rustpods-48.png", dest = "/usr/share/icons/hicolor/48x48/apps/rustpods.png", mode = "644" },
+    { source = "packaging/icons/rustpods-64.png", dest = "/usr/share/icons/hicolor/64x64/apps/rustpods.png", mode = "644" },
+    { source = "packaging/icons/rustpods-128.png", dest = "/usr/share/icons/hicolor/128x128/apps/rustpods.png", mode = "644" },
+    { source = "packaging/icons/rustpods-256.png", dest = "/usr/share/icons/hicolor/256x256/apps/rustpods.png", mode = "644" },
+    { source = "packaging/icons/rustpods-512.png", dest = "/usr/share/icons/hicolor/512x512/apps/rustpods.png", mode = "644" },
 ]
 
 [package.metadata.generate-rpm.requires]

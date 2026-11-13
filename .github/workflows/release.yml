@@ -41,7 +41,9 @@ jobs:
           V=${GITHUB_REF_NAME#v}; [ "$GITHUB_REF_TYPE" = tag ] || V=dev
           mkdir -p AppDir/usr/bin
           cp target/release/rustpods AppDir/usr/bin/
-          cp packaging/rustpods.desktop packaging/rustpods.svg AppDir/
+          cp packaging/rustpods.desktop AppDir/
+          cp packaging/icons/rustpods-256.png AppDir/rustpods.png
+          ln -s rustpods.png AppDir/.DirIcon
           ln -s usr/bin/rustpods AppDir/AppRun
           curl -fsSL -o appimagetool https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
           chmod +x appimagetool
