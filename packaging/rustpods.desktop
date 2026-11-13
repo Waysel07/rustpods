@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=RustPods
+GenericName=AirPods Settings
+Comment=AirPods on Linux: battery, ear detection, stem presses, noise control
+Exec=rustpods
+Icon=rustpods
+Terminal=false
+Categories=Settings;HardwareSettings;AudioVideo;
+Keywords=airpods;bluetooth;headphones;earbuds;battery;
+StartupWMClass=rustpods

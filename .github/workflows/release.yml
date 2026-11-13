@@ -1,0 +1,69 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    # Oldest supported Ubuntu, so the binary runs on older glibc too.
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: System packages
+        run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libwayland-dev libgl1-mesa-dev rpm
+
+      - name: Build and test
+        run: |
+          cargo build --release --locked
+          cargo test --release --locked
+
+      - name: Packaging tools
+        run: cargo install --locked cargo-deb cargo-generate-rpm
+
+      - name: .deb and .rpm
+        run: |
+          cargo deb --no-build --no-strip
+          cargo generate-rpm
+          mkdir -p dist
+          cp target/debian/*.deb dist/
+          cp target/generate-rpm/*.rpm dist/
+
+      - name: AppImage
+        run: |
+          V=${GITHUB_REF_NAME#v}; [ "$GITHUB_REF_TYPE" = tag ] || V=dev
+          mkdir -p AppDir/usr/bin
+          cp target/release/rustpods AppDir/usr/bin/
+          cp packaging/rustpods.desktop packaging/rustpods.svg AppDir/
+          ln -s usr/bin/rustpods AppDir/AppRun
+          curl -fsSL -o appimagetool https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x appimagetool
+          ARCH=x86_64 APPIMAGE_EXTRACT_AND_RUN=1 ./appimagetool AppDir "dist/RustPods-$V-x86_64.AppImage"
+
+      - name: Tarball
+        run: |
+          V=${GITHUB_REF_NAME#v}; [ "$GITHUB_REF_TYPE" = tag ] || V=dev
+          D=rustpods-$V-x86_64-linux
+          mkdir -p $D
+          cp target/release/rustpods README.md LICENSE $D/
+          cp -r packaging $D/
+          tar czf dist/$D.tar.gz $D
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rustpods-packages
+          path: dist/*
+
+      - name: Publish release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/* --title "RustPods $GITHUB_REF_NAME" --notes-file packaging/release-notes.md

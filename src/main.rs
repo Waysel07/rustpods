@@ -7,6 +7,7 @@ mod l2cap;
 mod media;
 mod popup;
 mod settings;
+mod setup;
 
 use aap::{Charge, Component, Ear, NoiseMode};
 use anyhow::{Context, Result, anyhow, bail};
@@ -22,8 +23,9 @@ struct Cli {
     /// AirPods to use: Bluetooth address or part of the name (default: first connected)
     #[arg(short, long, global = true)]
     device: Option<String>,
+    /// Without a command, the settings window opens.
     #[command(subcommand)]
-    cmd: Cmd,
+    cmd: Option<Cmd>,
 }
 
 #[derive(Subcommand)]
@@ -93,7 +95,10 @@ async fn main() {
 
 async fn run(cli: Cli) -> Result<()> {
     let dev = cli.device.clone();
-    match cli.cmd {
+    let Some(cmd) = cli.cmd else {
+        return settings::run();
+    };
+    match cmd {
         Cmd::Daemon { no_ear_pause, no_popup, no_notify, no_battery_provider, duck, no_media_keys } => {
             daemon::run(daemon::Options {
                 device: dev,

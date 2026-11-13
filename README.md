@@ -53,25 +53,42 @@ Right: the built-in drawings used when no product pictures are installed.</sub><
 
 ## Install
 
-You need Rust, BlueZ and PipeWire (with `pipewire-pulse`), which most current distros already ship.
+**Download one file from the [latest release](https://github.com/Waysel07/rustpods/releases/latest), open it, done.** No terminal needed.
+
+| Your system | Download |
+| --- | --- |
+| Ubuntu, Linux Mint, Pop!_OS, Debian, Zorin | `rustpods_…_amd64.deb`: double-click to install |
+| Fedora, openSUSE, Nobara | `rustpods-….x86_64.rpm`: double-click to install |
+| Anything else (Arch, CachyOS, Manjaro, Steam Deck, …) | `RustPods-…-x86_64.AppImage`: right-click → Properties → *Allow executing*, then double-click |
+
+Then open **RustPods** from your app menu. The first time, it starts the background service and turns
+on *Start at login*. Pair your AirPods the usual way (system settings) and you're set.
+
+<details>
+<summary><b>Arch package, or building from source</b></summary>
+
+Arch-based distros can build a native package from [`packaging/arch/PKGBUILD`](packaging/arch/PKGBUILD)
+with `makepkg -si`.
+
+From source (needs Rust):
 
 ```sh
 git clone https://github.com/Waysel07/rustpods
 cd rustpods
 cargo build --release
 install -Dm755 target/release/rustpods ~/.local/bin/rustpods
-
-rustpods doctor     # check your setup
-rustpods install    # background service, starts now and at every login
+rustpods            # opens the app and sets up the background service
 ```
 
-Pair your AirPods once the usual way (system settings, or `bluetoothctl`). rustpods finds them on its own.
+`rustpods install` sets the service up through systemd instead, if you prefer that.
+
+</details>
 
 ## Settings
 
 <img src="docs/settings.png" width="330" align="right" alt="The RustPods settings window with stem press actions for the left AirPod">
 
-Open **RustPods** from your app launcher, or run `rustpods settings`.
+Open **RustPods** from your app menu (or run `rustpods`).
 
 - **Stem presses:** pick an action for each press, separately for the left and the right AirPod.
   Choices: play/pause, next, previous, volume up/down, mute, next noise mode, conversation awareness,
@@ -103,7 +120,7 @@ AirPods  (AirPods 4, 12:34:56:78:9A:BC)
 | `rustpods noise <mode>` | `off`, `anc`, `transparency`, `adaptive`, or `next` to cycle |
 | `rustpods conversation on\|off` | Conversational awareness |
 | `rustpods profile [music\|call]` | Best A2DP codec, or headset mode with the mic; no argument lists profiles |
-| `rustpods settings` | Open the settings window |
+| `rustpods` / `rustpods settings` | Open the app |
 | `rustpods popup [--demo]` | Show the popup now |
 | `rustpods list` | Paired AirPods and Beats |
 | `rustpods doctor` | Check the setup and suggest fixes |

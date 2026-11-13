@@ -1,6 +1,6 @@
 [package]
 name = "rustpods"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 description = "Make AirPods feel at home on Linux: battery popup, ear detection, stem controls, noise control"
 license = "MIT"
@@ -22,3 +22,37 @@ smithay-client-toolkit = { version = "0.21.1", default-features = false }
 tiny-skia = "0.12.0"
 tokio = { version = "1.54.1", features = ["rt-multi-thread", "macros", "sync", "time", "net", "io-util", "signal"] }
 zbus = { version = "5", default-features = false, features = ["tokio"] }
+
+[profile.release]
+strip = true
+lto = "thin"
+codegen-units = 1
+
+[package.metadata.deb]
+maintainer = "Waysel07 <https://github.com/Waysel07/rustpods>"
+section = "sound"
+priority = "optional"
+depends = "$auto, bluez, pipewire-pulse | pulseaudio-utils, wireplumber, libegl1, libxkbcommon0, fontconfig"
+extended-description = """\
+Battery popup, ear detection with auto-pause, per-side stem shortcuts, noise control and \
+battery in the desktop for AirPods. Open RustPods from the app menu; the background \
+service starts by itself."""
+assets = [
+    ["target/release/rustpods", "usr/bin/", "755"],
+    ["packaging/rustpods.desktop", "usr/share/applications/", "644"],
+    ["packaging/rustpods-daemon.desktop", "etc/xdg/autostart/", "644"],
+    ["packaging/rustpods.svg", "usr/share/icons/hicolor/scalable/apps/", "644"],
+    ["README.md", "usr/share/doc/rustpods/", "644"],
+]
+
+[package.metadata.generate-rpm]
+assets = [
+    { source = "target/release/rustpods", dest = "/usr/bin/rustpods", mode = "755" },
+    { source = "packaging/rustpods.desktop", dest = "/usr/share/applications/rustpods.desktop", mode = "644" },
+    { source = "packaging/rustpods-daemon.desktop", dest = "/etc/xdg/autostart/rustpods-daemon.desktop", mode = "644" },
+    { source = "packaging/rustpods.svg", dest = "/usr/share/icons/hicolor/scalable/apps/rustpods.svg", mode = "644" },
+]
+
+[package.metadata.generate-rpm.requires]
+bluez = "*"
+wireplumber = "*"

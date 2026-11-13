@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=RustPods background service
+Comment=AirPods battery, ear detection, popup and stem presses
+Exec=rustpods daemon
+Icon=rustpods
+NoDisplay=true
+Terminal=false
+X-GNOME-Autostart-enabled=true

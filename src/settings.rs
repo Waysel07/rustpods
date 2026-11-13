@@ -53,6 +53,7 @@ pub fn run() -> anyhow::Result<()> {
 
 struct App {
     cfg: Config,
+    autostart: bool,
     link: Arc<Mutex<Link>>,
     left: bool,
     note: Option<(String, bool)>,
@@ -89,7 +90,12 @@ impl App {
                 std::thread::sleep(Duration::from_secs(2));
             }
         });
-        App { cfg: Config::load(), link, left: true, note: None }
+        // Opening the app is all the setup there is: start the service if it isn't running.
+        crate::setup::first_run();
+        if ask("status").is_none() {
+            let _ = crate::setup::start_daemon();
+        }
+        App { cfg: Config::load(), autostart: crate::setup::autostart_enabled(), link, left: true, note: None }
     }
 
     fn save(&mut self) {
@@ -253,7 +259,7 @@ impl App {
             let (title, sub, dot) = match (link, st) {
                 (_, Some(s)) => (s.name.clone(), s.model.clone(), GREEN),
                 (Link::Status(_), None) => ("AirPods".into(), "Not connected. Open the case near your computer.".into(), ORANGE),
-                (Link::NoDaemon, _) => ("RustPods".into(), "The background service isn't running. Run `rustpods install`.".into(), RED),
+                (Link::NoDaemon, _) => ("RustPods".into(), "The background service isn't running.".into(), RED),
                 (Link::Unknown, _) => ("RustPods".into(), "Looking for the service…".into(), Color32::GRAY),
             };
             ui.horizontal(|ui| {
@@ -262,6 +268,15 @@ impl App {
                 ui.label(RichText::new(title).heading().strong());
             });
             ui.label(RichText::new(sub).color(ui.visuals().weak_text_color()));
+            if matches!(link, Link::NoDaemon) {
+                ui.add_space(6.0);
+                if ui.button("Start RustPods").clicked() {
+                    self.note = Some(match crate::setup::start_daemon() {
+                        Ok(()) => ("Starting…".into(), false),
+                        Err(e) => (format!("Could not start: {e}"), true),
+                    });
+                }
+            }
             if let Some(s) = st {
                 ui.add_space(8.0);
                 ui.horizontal(|ui| {
@@ -396,6 +411,16 @@ impl App {
         section(ui, "Automatic");
         let mut changed = false;
         card(ui, |ui| {
+            row(ui, "Start at login", Some("Runs in the background, no window needed"), |ui| {
+                let mut on = self.autostart;
+                if toggle(ui, &mut on).changed() {
+                    match crate::setup::set_autostart(on) {
+                        Ok(()) => self.autostart = on,
+                        Err(e) => self.note = Some((format!("Could not change autostart: {e}"), true)),
+                    }
+                }
+            });
+            ui.separator();
             let c = &mut self.cfg;
             let items: [(&str, Option<&str>, &mut bool); 5] = [
                 ("Pause when an AirPod comes out", Some("And resume when you put it back"), &mut c.ear_pause),

@@ -1,0 +1,36 @@
+# Maintainer: Waysel07 <https://github.com/Waysel07>
+pkgname=rustpods
+pkgver=0.2.0
+pkgrel=1
+pkgdesc="AirPods on Linux: battery popup, ear detection, per-side stem shortcuts, noise control"
+arch=('x86_64' 'aarch64')
+url="https://github.com/Waysel07/rustpods"
+license=('MIT')
+depends=('bluez' 'pipewire-pulse' 'wireplumber' 'libglvnd' 'libxkbcommon' 'fontconfig')
+makedepends=('cargo')
+source=("$pkgname-$pkgver.tar.gz::$url/archive/refs/tags/v$pkgver.tar.gz")
+sha256sums=('SKIP')
+
+prepare() {
+  cd "$pkgname-$pkgver"
+  cargo fetch --locked --target "$(rustc -vV | sed -n 's/host: //p')"
+}
+
+build() {
+  cd "$pkgname-$pkgver"
+  cargo build --frozen --release
+}
+
+check() {
+  cd "$pkgname-$pkgver"
+  cargo test --frozen --release
+}
+
+package() {
+  cd "$pkgname-$pkgver"
+  install -Dm755 target/release/rustpods "$pkgdir/usr/bin/rustpods"
+  install -Dm644 packaging/rustpods.desktop "$pkgdir/usr/share/applications/rustpods.desktop"
+  install -Dm644 packaging/rustpods-daemon.desktop "$pkgdir/etc/xdg/autostart/rustpods-daemon.desktop"
+  install -Dm644 packaging/rustpods.svg "$pkgdir/usr/share/icons/hicolor/scalable/apps/rustpods.svg"
+  install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}
