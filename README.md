@@ -35,6 +35,7 @@ rustpods speaks it.
 | 🖥️ **Battery in your desktop** | Shows up in KDE, GNOME, UPower and every battery widget, like any other Bluetooth device. |
 | 👂 **Ear detection** | Take an AirPod out and the music pauses. Put it back and it resumes. |
 | 👆 **Stem presses** | Press once to play/pause, twice for the next song, three times for the previous one, in whatever is playing. |
+| 🎛️ **Your own shortcuts, per side** | Give the left and right AirPod different actions for one, two or three presses and press-and-hold: volume, noise mode, mute, the popup, or any command. |
 | 🎧 **Noise control** | Off, noise cancellation, transparency and adaptive, plus conversational awareness. |
 | 🗣️ **Volume ducking** | Lowers the music while you talk (`--duck`, on models with conversational awareness). |
 | 🪫 **Low battery alerts** | A notification at 20 % and at 10 %. |
@@ -66,6 +67,25 @@ rustpods install    # background service, starts now and at every login
 
 Pair your AirPods once the usual way (system settings, or `bluetoothctl`). rustpods finds them on its own.
 
+## Settings
+
+<img src="docs/settings.png" width="330" align="right" alt="The RustPods settings window with stem press actions for the left AirPod">
+
+Open **RustPods** from your app launcher, or run `rustpods settings`.
+
+- **Stem presses:** pick an action for each press, separately for the left and the right AirPod.
+  Choices: play/pause, next, previous, volume up/down, mute, next noise mode, conversation awareness,
+  battery popup, nothing, or *Run command…* for anything else (`playerctl`, `notify-send`, a script).
+- **Noise control** and **conversation awareness**, when your AirPods have them.
+- **Automatic:** auto-pause, popup on connect, low battery alerts, desktop battery, volume ducking.
+
+Changes apply immediately and are stored in `~/.config/rustpods/config.json`.
+
+> Per-side presses work on AirPods with a press sensor (AirPods 3, 4, Pro, Pro 2/3). Presses left on
+> *Default* stay with the AirPods, so nothing changes until you pick something.
+
+<br clear="right">
+
 ## Usage
 
 ```console
@@ -83,6 +103,7 @@ AirPods  (AirPods 4, 12:34:56:78:9A:BC)
 | `rustpods noise <mode>` | `off`, `anc`, `transparency`, `adaptive`, or `next` to cycle |
 | `rustpods conversation on\|off` | Conversational awareness |
 | `rustpods profile [music\|call]` | Best A2DP codec, or headset mode with the mic; no argument lists profiles |
+| `rustpods settings` | Open the settings window |
 | `rustpods popup [--demo]` | Show the popup now |
 | `rustpods list` | Paired AirPods and Beats |
 | `rustpods doctor` | Check the setup and suggest fixes |
@@ -187,6 +208,9 @@ river, …). On GNOME and X11 it falls back to a notification.
   changes a setting. See [`src/aap.rs`](src/aap.rs).
 - **Battery:** published through `org.bluez.BatteryProviderManager1`, so it shows up as a normal
   Bluetooth battery.
+- **Per-side presses:** for every press you customise, rustpods asks the AirPods (AAP control `0x39`)
+  to report it, with the side, instead of sending a media command. Reports arrive as `0x19` packets;
+  on exit rustpods hands the presses back.
 - **Stem presses:** rustpods registers itself with BlueZ as the Bluetooth media player
   (`org.bluez.Media1`) and forwards each AVRCP command to the MPRIS player that is actually playing.
 - **Popup:** a `wlr-layer-shell` surface drawn in software with [tiny-skia](https://github.com/RazrFalcon/tiny-skia),

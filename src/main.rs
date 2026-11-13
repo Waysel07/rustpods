@@ -1,10 +1,12 @@
 mod aap;
 mod avrcp;
 mod bluez;
+mod config;
 mod daemon;
 mod l2cap;
 mod media;
 mod popup;
+mod settings;
 
 use aap::{Charge, Component, Ear, NoiseMode};
 use anyhow::{Context, Result, anyhow, bail};
@@ -69,6 +71,8 @@ enum Cmd {
         #[arg(long, hide = true)]
         data: Option<String>,
     },
+    /// Open the settings window (stem presses per side, noise control, automatic features)
+    Settings,
     /// One line of JSON for a waybar custom module
     Waybar,
     /// Check the Bluetooth and audio setup and suggest fixes
@@ -176,6 +180,7 @@ async fn run(cli: Cli) -> Result<()> {
             }
             Ok(())
         }
+        Cmd::Settings => settings::run(),
         Cmd::Waybar => {
             let st = match daemon::ask("status").await {
                 Some(r) => r.unwrap_or_default(),
@@ -523,6 +528,16 @@ fn install() -> Result<()> {
             bail!("systemctl {} failed", args.join(" "));
         }
     }
+    let apps = std::path::PathBuf::from(&home).join(".local/share/applications");
+    std::fs::create_dir_all(&apps)?;
+    let desktop = format!(
+        "[Desktop Entry]\nType=Application\nName=RustPods\nComment=AirPods settings: stem presses, noise control, battery\n\
+         Exec={} settings\nIcon=audio-headphones\nTerminal=false\nCategories=Settings;HardwareSettings;AudioVideo;\n\
+         Keywords=airpods;bluetooth;headphones;battery;\nStartupWMClass=rustpods\n",
+        exe.display()
+    );
+    std::fs::write(apps.join("rustpods.desktop"), desktop)?;
+    println!("added RustPods to your app launcher (or run: rustpods settings)");
     println!("rustpods is running. Logs: journalctl --user -u rustpods -f");
     Ok(())
 }

@@ -26,9 +26,13 @@ const OP_EAR: u8 = 0x06;
 const OP_CONTROL: u8 = 0x09;
 const OP_METADATA: u8 = 0x1d;
 const OP_SPEAKING: u8 = 0x4b;
+const OP_STEM: u8 = 0x19;
 
 const CTL_NOISE: u8 = 0x0d;
 const CTL_CONVERSATION: u8 = 0x28;
+/// Bit mask of presses the AirPods report to the host (with the side) instead of
+/// turning them into Bluetooth media commands themselves.
+const CTL_STEM_CONFIG: u8 = 0x39;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -123,6 +127,8 @@ pub enum Event {
     /// Conversational awareness: the wearer started (true) or stopped (false) talking.
     Speaking(bool),
     Name(String),
+    /// A stem press, only sent for presses enabled with [`set_stem_capture`]. `left` says which bud.
+    Stem { left: bool, press: crate::config::Press },
     Other(u8),
 }
 
@@ -165,6 +171,21 @@ pub fn parse(p: &[u8]) -> Option<Event> {
             let b = *body.last()?;
             Some(Event::Speaking(matches!(b, 0x01 | 0x02)))
         }
+        OP_STEM if body.len() >= 2 => {
+            use crate::config::Press;
+            let press = match body[0] {
+                0x05 => Press::Single,
+                0x06 => Press::Double,
+                0x07 => Press::Triple,
+                0x08 => Press::Long,
+                _ => return Some(Event::Other(op)),
+            };
+            match body[1] {
+                0x01 => Some(Event::Stem { left: true, press }),
+                0x02 => Some(Event::Stem { left: false, press }),
+                _ => Some(Event::Other(op)),
+            }
+        }
         OP_METADATA => {
             // Body is a run of NUL separated strings; the first readable one is the name.
             let name = body
@@ -188,6 +209,17 @@ pub fn set_noise(mode: NoiseMode) -> Vec<u8> {
 
 pub fn set_conversation(on: bool) -> Vec<u8> {
     control(CTL_CONVERSATION, if on { 0x01 } else { 0x02 })
+}
+
+/// Tells the AirPods which presses (bit mask from `Press::bit`) to report to us. 0 restores
+/// their normal behaviour.
+pub fn set_stem_capture(mask: u8) -> Vec<u8> {
+    control(CTL_STEM_CONFIG, mask)
+}
+
+/// Models with a press sensor in the stem.
+pub fn has_stem_presses(product: u16) -> bool {
+    matches!(product, 0x2013 | 0x2019 | 0x201b | 0x200e | 0x2014 | 0x2024 | 0x2027)
 }
 
 /// Human readable model name from the product ID in BlueZ's Modalias.
@@ -267,6 +299,16 @@ mod tests {
     fn conversation_roundtrip() {
         assert_eq!(parse(&set_conversation(true)), Some(Event::Conversation(true)));
         assert_eq!(parse(&set_conversation(false)), Some(Event::Conversation(false)));
+    }
+
+    #[test]
+    fn stem_presses() {
+        use crate::config::Press;
+        let p = [0x04, 0x00, 0x04, 0x00, 0x19, 0x00, 0x06, 0x01];
+        assert_eq!(parse(&p), Some(Event::Stem { left: true, press: Press::Double }));
+        let p = [0x04, 0x00, 0x04, 0x00, 0x19, 0x00, 0x08, 0x02];
+        assert_eq!(parse(&p), Some(Event::Stem { left: false, press: Press::Long }));
+        assert_eq!(set_stem_capture(0x02)[..8], [0x04, 0x00, 0x04, 0x00, 0x09, 0x00, 0x39, 0x02]);
     }
 
     #[test]

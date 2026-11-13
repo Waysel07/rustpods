@@ -1,6 +1,7 @@
 //! Background service: keeps the AAP channel open and reacts to what the AirPods report.
 
 use crate::aap::{self, Battery, Charge, Component, Ear, Event, NoiseMode};
+use crate::config::{Action, Config};
 use crate::bluez::{self, Device};
 use crate::l2cap::L2cap;
 use crate::media;
@@ -195,6 +196,8 @@ fn write_state(st: &State) {
 
 enum Cmd {
     Send(Vec<u8>, oneshot::Sender<Result<()>>),
+    /// The settings file changed (sent by the settings window).
+    Reload,
 }
 
 pub async fn run(opts: Options) -> Result<()> {
@@ -297,14 +300,42 @@ async fn session_loop(
     let mut resume_level = 0usize;
     let mut ducked: Option<f32> = None;
 
+    let mut cfg = Config::load();
+    let mut cfg_stamp = config_stamp();
+    let mut mask_sent = 0u8;
+    let stems = aap::has_stem_presses(dev.product);
+    if stems {
+        mask_sent = apply_capture(sock, &cfg, 0).await;
+    }
+    let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).ok();
+
     let mut tick = tokio::time::interval(Duration::from_secs(2));
     loop {
         let pkt = tokio::select! {
             _ = tick.tick() => {
-                if opts.media_keys {
+                if opts.media_keys && cfg.media_keys {
                     crate::avrcp::sync_status(system, session).await;
                 }
+                let stamp = config_stamp();
+                if stamp != cfg_stamp {
+                    cfg_stamp = stamp;
+                    cfg = Config::load();
+                    if stems {
+                        mask_sent = apply_capture(sock, &cfg, mask_sent).await;
+                    }
+                }
                 continue;
+            }
+            _ = async { match term.as_mut() { Some(t) => { t.recv().await; } None => std::future::pending::<()>().await } } => {
+                // Hand the presses back to the AirPods before we go.
+                if mask_sent != 0 {
+                    let _ = sock.send(&aap::set_stem_capture(0)).await;
+                }
+                if let Some(v) = ducked {
+                    media::set_volume(v);
+                }
+                eprintln!("stopping");
+                std::process::exit(0);
             }
             r = sock.recv() => match r {
                 Ok(p) if !p.is_empty() => p,
@@ -313,6 +344,13 @@ async fn session_loop(
             Some(cmd) = rx.recv() => {
                 match cmd {
                     Cmd::Send(p, reply) => { let _ = reply.send(sock.send(&p).await); }
+                    Cmd::Reload => {
+                        cfg = Config::load();
+                        cfg_stamp = config_stamp();
+                        if stems {
+                            mask_sent = apply_capture(sock, &cfg, mask_sent).await;
+                        }
+                    }
                 }
                 continue;
             }
@@ -332,11 +370,11 @@ async fn session_loop(
                         eprintln!("battery provider: {e}");
                     }
                 }
-                if opts.popup && !popped && !snapshot.batteries.is_empty() {
+                if opts.popup && cfg.popup && !popped && !snapshot.batteries.is_empty() {
                     popped = true;
                     spawn_popup(&snapshot.popup());
                 }
-                if opts.notify_low {
+                if opts.notify_low && cfg.notify_low {
                     for b in &snapshot.batteries {
                         if b.component == Component::Case || b.charge != Charge::Discharging {
                             continue;
@@ -358,7 +396,7 @@ async fn session_loop(
                 let wearing = [a, b].iter().filter(|e| ***e == Ear::In).count();
                 let in_case = [a, b].iter().all(|e| **e == Ear::Case);
                 if let Some(prev) = wearing_prev {
-                    if opts.ear_pause && wearing < prev && paused.is_empty() {
+                    if opts.ear_pause && cfg.ear_pause && wearing < prev && paused.is_empty() {
                         paused = media::pause_all(session).await.unwrap_or_default();
                         resume_level = prev;
                         if !paused.is_empty() {
@@ -375,11 +413,11 @@ async fn session_loop(
                 }
                 wearing_prev = Some(wearing);
             }
-            Event::Speaking(talking) if opts.duck => {
+            Event::Speaking(talking) if opts.duck || cfg.duck => {
                 if *talking && ducked.is_none() {
                     if let Some(v) = media::volume() {
                         ducked = Some(v);
-                        media::set_volume(v * 0.3);
+                        media::set_volume(v * cfg.duck_level.clamp(0.0, 1.0));
                     }
                 } else if !*talking {
                     if let Some(v) = ducked.take() {
@@ -387,11 +425,96 @@ async fn session_loop(
                     }
                 }
             }
+            Event::Stem { left, press } => {
+                let action = cfg.action(*left, *press);
+                eprintln!(
+                    "press: {} {} -> {}",
+                    if *left { "left" } else { "right" },
+                    press.label().to_lowercase(),
+                    action.label()
+                );
+                run_action(&action, session, sock, &snapshot).await;
+            }
             _ => {}
         }
     }
     if let Some(v) = ducked {
         media::set_volume(v);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Per-side stem actions
+
+fn config_stamp() -> Option<std::time::SystemTime> {
+    std::fs::metadata(Config::path()).and_then(|m| m.modified()).ok()
+}
+
+/// Sends the capture mask if it changed; returns what the AirPods now have.
+async fn apply_capture(sock: &L2cap, cfg: &Config, sent: u8) -> u8 {
+    let mask = cfg.capture_mask();
+    if mask == sent {
+        return sent;
+    }
+    match sock.send(&aap::set_stem_capture(mask)).await {
+        Ok(()) => {
+            eprintln!("stem presses handled by rustpods: {}", describe_mask(mask));
+            mask
+        }
+        Err(e) => {
+            eprintln!("could not change stem press handling: {e}");
+            sent
+        }
+    }
+}
+
+fn describe_mask(mask: u8) -> String {
+    let names: Vec<_> = crate::config::Press::ALL
+        .iter()
+        .filter(|p| mask & p.bit() != 0)
+        .map(|p| p.label().to_lowercase())
+        .collect();
+    if names.is_empty() { "none (AirPods defaults)".into() } else { names.join(", ") }
+}
+
+async fn run_action(action: &Action, session: &Connection, sock: &L2cap, st: &State) {
+    let wpctl = |args: &[&str]| {
+        let _ = std::process::Command::new("wpctl").args(args).status();
+    };
+    match action {
+        Action::Default | Action::Nothing => {}
+        Action::PlayPause | Action::Next | Action::Previous => {
+            let method = match action {
+                Action::PlayPause => "PlayPause",
+                Action::Next => "Next",
+                _ => "Previous",
+            };
+            if let Some(name) = media::target(session).await {
+                media::call(session, &name, method).await;
+            }
+        }
+        Action::VolumeUp => wpctl(&["set-volume", "-l", "1.0", "@DEFAULT_AUDIO_SINK@", "5%+"]),
+        Action::VolumeDown => wpctl(&["set-volume", "@DEFAULT_AUDIO_SINK@", "5%-"]),
+        Action::Mute => wpctl(&["set-mute", "@DEFAULT_AUDIO_SINK@", "toggle"]),
+        Action::NoiseNext => {
+            let modes = &st.noise_modes;
+            if !modes.is_empty() {
+                let i = st.noise.and_then(|n| modes.iter().position(|m| *m == n)).map_or(0, |i| (i + 1) % modes.len());
+                let _ = sock.send(&aap::set_noise(modes[i])).await;
+            }
+        }
+        Action::ConversationToggle => {
+            if aap::has_conversation_awareness(st.product) {
+                let _ = sock.send(&aap::set_conversation(!st.conversation.unwrap_or(true))).await;
+            }
+        }
+        Action::ShowPopup => spawn_popup(&st.popup()),
+        Action::Command(cmd) => match std::process::Command::new("sh").args(["-c", cmd]).spawn() {
+            Ok(mut child) => {
+                std::thread::spawn(move || child.wait());
+            }
+            Err(e) => eprintln!("command failed: {e}"),
+        },
     }
 }
 
@@ -436,6 +559,10 @@ async fn command(line: &str, state: &Arc<Mutex<State>>, tx: &mpsc::Sender<Cmd>) 
     let st = state.lock().await.clone();
     let packet = match cmd {
         "status" => return Ok(st),
+        "reload" => {
+            let _ = tx.try_send(Cmd::Reload);
+            return Ok(st);
+        }
         "popup" => {
             if !st.connected {
                 bail!("AirPods not connected");
