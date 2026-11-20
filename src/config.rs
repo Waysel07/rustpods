@@ -140,6 +140,35 @@ impl Side {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EqPreset {
+    /// The measured AutoEQ correction for the model.
+    Neutral,
+    BassBoost,
+    Warm,
+    /// Correction on/off plus your own bass and treble.
+    Custom,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct EqConfig {
+    pub enabled: bool,
+    pub preset: EqPreset,
+    /// Custom only: apply the model correction.
+    pub correction: bool,
+    /// Custom only: shelf gains in dB.
+    pub bass: f32,
+    pub treble: f32,
+}
+
+impl Default for EqConfig {
+    fn default() -> Self {
+        EqConfig { enabled: false, preset: EqPreset::Neutral, correction: true, bass: 0.0, treble: 0.0 }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
@@ -153,6 +182,7 @@ pub struct Config {
     pub duck_level: f32,
     /// Offer to connect when a paired AirPods case is opened nearby.
     pub connect_assistant: bool,
+    pub eq: EqConfig,
     pub left: Side,
     pub right: Side,
 }
@@ -168,6 +198,7 @@ impl Default for Config {
             duck: false,
             duck_level: 0.3,
             connect_assistant: true,
+            eq: EqConfig::default(),
             left: Side::default(),
             right: Side::default(),
         }
@@ -257,5 +288,7 @@ mod tests {
         assert_eq!(serde_json::from_str::<Config>(&j).unwrap(), c);
         let partial: Config = serde_json::from_str(r#"{"popup": false}"#).unwrap();
         assert!(!partial.popup && partial.ear_pause);
+        let eq: Config = serde_json::from_str(r#"{"eq": {"enabled": true, "preset": "bass_boost"}}"#).unwrap();
+        assert!(eq.eq.enabled && eq.eq.preset == EqPreset::BassBoost && eq.eq.correction);
     }
 }

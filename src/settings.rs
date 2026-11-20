@@ -1,7 +1,7 @@
 //! `rustpods settings`: a small window for the config file, with live status from the daemon.
 
 use crate::aap::{self, Charge, Component, NoiseMode};
-use crate::config::{Action, Config, Press};
+use crate::config::{Action, Config, EqPreset, Press};
 use crate::daemon::{self, State};
 use eframe::egui::{self, Align, Color32, CornerRadius, Layout, RichText, Sense, Stroke, Vec2};
 use std::io::{BufRead, BufReader, Write};
@@ -206,6 +206,28 @@ fn segmented<T: PartialEq + Copy>(ui: &mut egui::Ui, value: &mut T, options: &[(
     changed
 }
 
+/// The equalizer's frequency response, 20 Hz to 20 kHz, ±12 dB (preamp left out, so it
+/// shows the shape rather than the loudness).
+fn curve(ui: &mut egui::Ui, chain: &crate::eq::Chain) {
+    let (rect, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 84.0), Sense::hover());
+    let p = ui.painter_at(rect);
+    let weak = ui.visuals().weak_text_color();
+    let grid = Stroke::new(0.5, weak.gamma_multiply(0.35));
+    let y = |db: f64| rect.center().y - (db.clamp(-12.0, 12.0) / 12.0) as f32 * (rect.height() / 2.0 - 4.0);
+    let x = |f: f64| rect.left() + ((f / 20.0).log10() / 3.0) as f32 * rect.width();
+    for f in [100.0, 1000.0, 10000.0] {
+        p.line_segment([egui::pos2(x(f), rect.top()), egui::pos2(x(f), rect.bottom())], grid);
+        let t = if f >= 1000.0 { format!("{}k", f / 1000.0) } else { format!("{f}") };
+        p.text(egui::pos2(x(f) + 3.0, rect.bottom() - 2.0), egui::Align2::LEFT_BOTTOM, t, egui::FontId::proportional(10.0), weak);
+    }
+    p.line_segment([egui::pos2(rect.left(), y(0.0)), egui::pos2(rect.right(), y(0.0))], grid);
+    let pts: Vec<egui::Pos2> = (0..=160)
+        .map(|i| 20.0 * 1000f64.powf(i as f64 / 160.0))
+        .map(|f| egui::pos2(x(f), y(crate::eq::response_db(&chain.bands, f))))
+        .collect();
+    p.add(egui::Shape::line(pts, Stroke::new(2.0, BLUE)));
+}
+
 fn battery(ui: &mut egui::Ui, label: &str, b: Option<&aap::Battery>) {
     ui.vertical(|ui| {
         ui.set_width(84.0);
@@ -252,6 +274,7 @@ impl eframe::App for App {
                         self.noise(ui, st);
                     }
                 }
+                self.equalizer(ui, state.as_ref());
                 self.presses(ui, state.as_ref());
                 self.automatic(ui);
                 ui.add_space(16.0);
@@ -345,6 +368,55 @@ impl App {
                 });
             }
         });
+    }
+
+    fn equalizer(&mut self, ui: &mut egui::Ui, st: Option<&State>) {
+        section(ui, "Equalizer");
+        let product = st.map_or(0, |s| s.product);
+        let tuning = crate::eq::tuning(product);
+        let mut changed = false;
+        card(ui, |ui| {
+            let e = &mut self.cfg.eq;
+            let sub = match (st, tuning) {
+                (Some(s), Some(t)) => format!("Tuned for {} from AutoEQ measurements ({})", s.model, t.source),
+                (Some(s), None) => format!("No measurements for {} yet: bass and treble only", s.model),
+                (None, _) => "Only on the AirPods, while playing music".into(),
+            };
+            row(ui, "Equalizer", Some(&sub), |ui| changed |= toggle(ui, &mut e.enabled).changed());
+            if !e.enabled {
+                return;
+            }
+            ui.separator();
+            let neutral = if tuning.is_some() || st.is_none() { "Neutral" } else { "Flat" };
+            changed |= segmented(ui, &mut e.preset, &[
+                (EqPreset::Neutral, neutral),
+                (EqPreset::BassBoost, "Bass boost"),
+                (EqPreset::Warm, "Warm"),
+                (EqPreset::Custom, "Custom"),
+            ]);
+            if e.preset == EqPreset::Custom {
+                if tuning.is_some() {
+                    ui.separator();
+                    row(ui, "Model correction", Some("Flattens the AirPods' own sound signature"), |ui| {
+                        changed |= toggle(ui, &mut e.correction).changed();
+                    });
+                }
+                for (label, v) in [("Bass", &mut e.bass), ("Treble", &mut e.treble)] {
+                    ui.horizontal(|ui| {
+                        ui.add_sized([56.0, 20.0], egui::Label::new(RichText::new(label).small()));
+                        let s = ui.add(egui::Slider::new(v, -9.0..=9.0).suffix(" dB").step_by(0.5));
+                        if s.drag_stopped() || (s.changed() && !s.dragged()) {
+                            changed = true;
+                        }
+                    });
+                }
+            }
+            ui.add_space(4.0);
+            curve(ui, &crate::eq::chain(e, product));
+        });
+        if changed {
+            self.save();
+        }
     }
 
     fn presses(&mut self, ui: &mut egui::Ui, st: Option<&State>) {

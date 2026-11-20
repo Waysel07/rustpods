@@ -4,6 +4,7 @@ mod ble;
 mod bluez;
 mod config;
 mod daemon;
+mod eq;
 mod l2cap;
 mod media;
 mod popup;

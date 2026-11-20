@@ -315,6 +315,9 @@ async fn session_loop(
     if stems {
         mask_sent = apply_capture(sock, &cfg, 0).await;
     }
+    // Stopped when this session ends (drop) or on SIGTERM below.
+    let mut eq = crate::eq::Filter::default();
+    eq.sync(&cfg.eq, dev.product, &dev.address);
     let mut term = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()).ok();
 
     let mut tick = tokio::time::interval(Duration::from_secs(2));
@@ -332,6 +335,8 @@ async fn session_loop(
                         mask_sent = apply_capture(sock, &cfg, mask_sent).await;
                     }
                 }
+                // Also follows the AirPods switching between music (A2DP) and calls.
+                eq.sync(&cfg.eq, dev.product, &dev.address);
                 continue;
             }
             _ = async { match term.as_mut() { Some(t) => { t.recv().await; } None => std::future::pending::<()>().await } } => {
@@ -342,6 +347,7 @@ async fn session_loop(
                 if let Some(v) = ducked {
                     media::set_volume(v);
                 }
+                eq.stop();
                 eprintln!("stopping");
                 std::process::exit(0);
             }
@@ -358,6 +364,7 @@ async fn session_loop(
                         if stems {
                             mask_sent = apply_capture(sock, &cfg, mask_sent).await;
                         }
+                        eq.sync(&cfg.eq, dev.product, &dev.address);
                     }
                 }
                 continue;
